@@ -55,12 +55,13 @@ api:
             }
 
 ota:
-- platform: esphome
-  password: !secret "zehnder_comfofan_ota_password"
+  - platform: esphome
+    password: !secret "zehnder_comfofan_ota_password"
+
 
 wifi:
-  ssid: !secret "zehnder_comfofan_wifi_ssid"
-  password: !secret "zehnder_comfofan_wifi_password"
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
   fast_connect: true
 
   # Enable fallback hotspot (captive portal) in case Wifi connection fails
@@ -108,6 +109,21 @@ sensor:
     accuracy_decimals: 0
     update_interval: 15s
     lambda: !lambda 'return ${device_id}_ventilation->voltage;'
+
+    - platform: template
+    name: "${device_name} Error Code"
+    id: "${device_id}_error_code"
+    icon: mdi:alert-circle-outline
+    update_interval: 15s
+    lambda: |-
+      switch (id(${device_id}_ventilation).get_error_code()) {
+        case 1: return "E01: Communication Error";
+        case 2: return "E02: Temperature Sensor Failure";
+        case 3: return "E03: Fan Malfunction";
+        case 4: return "E04: Bypass Valve Issue";
+        case 5: return "E05: Filter Replacement Needed";
+        default: return "No Error";
+      }
 
 text_sensor:
   - platform: wifi_info
@@ -212,7 +228,7 @@ external_components:
 spi:
   clk_pin: GPIO14
   mosi_pin: GPIO13
-  miso_pin: GPIO12
+  miso_pin: GPIO16
 
 # nRF905 config
 nrf905:
@@ -222,8 +238,9 @@ nrf905:
   ce_pin: GPIO27
   pwr_pin: GPIO26
   txen_pin: GPIO25
-  am_pin: GPIO32
-  dr_pin: GPIO35
+  # We don't need AM and DR at the moment as they are read from the inernal registers
+  # am_pin: GPIO32
+  # dr_pin: GPIO35
 
 # The FAN controller
 fan:
@@ -235,16 +252,29 @@ fan:
     on_speed_set:
       - sensor.template.publish:
           id: ${device_id}_ventilation_percentage
-          state: !lambda 'return ${device_id}_ventilation->voltage;'
+          state: !lambda 'return id(${device_id}_ventilation).voltage;'
       - binary_sensor.template.publish:
           id: ${device_id}_timer
-          state: !lambda 'return ${device_id}_ventilation->timer;'
+          state: !lambda 'return id(${device_id}_ventilation).timer;'
       - text_sensor.template.publish:
           id: ${device_id}_ventilation_mode
-          state: !lambda 'switch (${device_id}_ventilation->speed) {
-                             case 1: return "Low";
-                             case 2: return "Medium";
-                             case 3: return "High";
-                             case 4: return "Max";
-                             default: return "Auto";
-                         }'
+          state: !lambda |-
+            switch (id(${device_id}_ventilation).speed) {
+              case 1: return "Low";
+              case 2: return "Medium";
+              case 3: return "High";
+              case 4: return "Max";
+              default: return "Auto";
+            }
+      - sensor.template.publish:
+          id: ${device_id}_error_code
+          state: !lambda |-
+            switch (id(${device_id}_ventilation).get_error_code()) {
+              case 1: return "E01: Communication Error";
+              case 2: return "E02: Temperature Sensor Failure";
+              case 3: return "E03: Fan Malfunction";
+              case 4: return "E04: Bypass Valve Issue";
+              case 5: return "E05: Filter Replacement Needed";
+              default: return "No Error";
+            }
+                        
