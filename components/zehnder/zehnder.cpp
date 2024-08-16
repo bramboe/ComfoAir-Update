@@ -9,6 +9,7 @@ namespace zehnder {
 
 static const char *const TAG = "zehnder";
 
+// Define RF payloads
 typedef struct __attribute__((packed)) {
   uint32_t networkId;
 } RfPayloadNetworkJoinOpen;
@@ -56,24 +57,26 @@ typedef struct __attribute__((packed)) {
   } payload;
 } RfFrame;
 
-ZehnderRF::ZehnderRF(void) {}
+ZehnderRF::ZehnderRF(void) : PollingComponent(1000), state_(StateIdle), speed_(0), retries_(3), rfState_(RfStateIdle), last_successful_communication(0), lastFanQuery_(0) {}
 
-fan::FanTraits ZehnderRF::get_traits() { return fan::FanTraits(false, true, false, this->speed_count_); }
+fan::FanTraits ZehnderRF::get_traits() { 
+  return fan::FanTraits(false, true, false, this->speed_count_); 
+}
 
 void ZehnderRF::control(const fan::FanCall &call) {
   if (call.get_state().has_value()) {
-    this->state = *call.get_state();
-    ESP_LOGD(TAG, "Control has state: %u", this->state);
+    this->state_ = *call.get_state();
+    ESP_LOGD(TAG, "Control has state: %u", this->state_);
   }
   if (call.get_speed().has_value()) {
-    this->speed = *call.get_speed();
-    ESP_LOGD(TAG, "Control has speed: %u", this->speed);
+    this->speed_ = *call.get_speed();
+    ESP_LOGD(TAG, "Control has speed: %u", this->speed_);
   }
 
   switch (this->state_) {
     case StateIdle:
       // Set speed
-      this->setSpeed(this->state ? this->speed : 0x00, 0);
+      this->setSpeed(this->state_ ? this->speed_ : 0x00, 0);
 
       this->lastFanQuery_ = millis();  // Update time
       break;
@@ -132,7 +135,7 @@ void ZehnderRF::setup() {
 
   this->speed_count_ = 4;
 
-  this->rf_->setOnTxReady([this](void) {
+  this->rf_->setOnTxReady([this]() {
     ESP_LOGD(TAG, "Tx Ready");
     if (this->rfState_ == RfStateTxBusy) {
       if (this->retries_ >= 0) {
@@ -150,7 +153,7 @@ void ZehnderRF::setup() {
   });
 }
 
-void ZehnderRF::dump_config(void) {
+void ZehnderRF::dump_config() {
   ESP_LOGCONFIG(TAG, "Zehnder Fan config:");
   ESP_LOGCONFIG(TAG, "  Polling interval   %u", this->interval_);
   ESP_LOGCONFIG(TAG, "  Fan networkId      0x%08X", this->config_.fan_networkId);
@@ -160,7 +163,7 @@ void ZehnderRF::dump_config(void) {
   ESP_LOGCONFIG(TAG, "  Fan main unit id   0x%02X", this->config_.fan_main_unit_id);
 }
 
-void ZehnderRF::loop(void) {
+void ZehnderRF::loop() {
   uint8_t deviceId;
   nrf905::Config rfConfig;
 
@@ -175,10 +178,12 @@ void ZehnderRF::loop(void) {
       // Wait until started up
       if (millis() > 15000) {
         // Discovery?
-        if ((this->config_.fan_networkId == 0x00000000) || (this->config_.fan_my_device_type == 0) ||
-            (this->config_.fan_my_device_id == 0) || (this->config_.fan_main_unit_type == 0) ||
+        if ((this->config_.fan_networkId == 0x00000000) || 
+            (this->config_.fan_my_device_type == 0) ||
+            (this->config_.fan_my_device_id == 0) || 
+            (this->config_.fan_main_unit_type == 0) ||
             (this->config_.fan_main_unit_id == 0)) {
-          ESP_LOGD(TAG, "Invalid config, start paring");
+          ESP_LOGD(TAG, "Invalid config, start pairing");
 
           this->state_ = StateStartDiscovery;
         } else {
@@ -202,14 +207,54 @@ void ZehnderRF::loop(void) {
       // For now just set TX
       break;
 
-    // Add more states here as needed, for example:
-    // case StatePolling:
-    //   // Code for polling state
-    //   break;
+    // Additional states handling
+    case StatePolling:
+      // Code for polling state
+      if (millis() - this->lastFanQuery_ > 10000) {
+        // Example polling condition
+        this->queryDevice();
+        this->lastFanQuery_ = millis();
+      }
+      break;
 
     default:
+      ESP_LOGW(TAG, "Unhandled state: %u", this->state_);
       break;
   }
+}
+
+void ZehnderRF::update_error_status() {
+  // Placeholder for actual error status update
+  // Set error_code_ based on actual device state
+  if (/* Communication error condition */) {
+    this->error_code_ = E01_COMMUNICATION_ERROR;
+  } else if (/* Fan malfunction condition */) {
+    this->error_code_ = E03_FAN_MALFUNCTION;
+  } else if (/* Filter replacement needed condition */) {
+    this->error_code_ = E05_FILTER_REPLACEMENT_NEEDED;
+  } else {
+    this->error_code_ = NO_ERROR;
+  }
+}
+
+// Placeholder for the RF handler implementation
+void ZehnderRF::rfHandler() {
+  // Implement RF handling logic here
+}
+
+// Placeholder for the device query implementation
+void ZehnderRF::queryDevice() {
+  // Implement device query logic here
+}
+
+// Placeholder for the discovery start implementation
+void ZehnderRF::discoveryStart(uint8_t deviceId) {
+  // Implement discovery start logic here
+}
+
+// Placeholder for the setSpeed implementation
+void ZehnderRF::setSpeed(uint8_t speed, uint8_t timer) {
+  // Implement setSpeed logic here
 }
 
 }  // namespace zehnder
