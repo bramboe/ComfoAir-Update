@@ -35,6 +35,7 @@ enum {
   FAN_TYPE_FAN_SETTINGS = 0x07,  // Current settings, sent by fan in reply to 0x01, 0x02, 0x10
   FAN_FRAME_0B = 0x0B,
   FAN_NETWORK_JOIN_ACK = 0x0C,
+  // FAN_NETWORK_JOIN_FINISH = 0x0D,
   FAN_TYPE_QUERY_NETWORK = 0x0D,
   FAN_TYPE_QUERY_DEVICE = 0x10,
   FAN_FRAME_SETVOLTAGE_REPLY = 0x1D
@@ -61,6 +62,7 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void setup() override;
 
+  // Setup things
   void set_rf(nrf905::nRF905 *const pRf) { rf_ = pRf; }
 
   void set_update_interval(const uint32_t interval) { interval_ = interval; }
@@ -81,8 +83,13 @@ class ZehnderRF : public Component, public fan::Fan {
   bool timer;
   int voltage;
 
-  // New method to get the current error code
-  uint8_t get_error_code() const { return current_error_code_; }
+  // New members for error detection
+  uint32_t last_successful_communication{0};
+  uint32_t filter_runtime{0};
+  uint8_t error_code{0};
+
+  // New method to get error code
+  uint8_t get_error_code() { return error_code; }
 
  protected:
   void queryDevice(void);
@@ -95,6 +102,9 @@ class ZehnderRF : public Component, public fan::Fan {
   void rfComplete(void);
   void rfHandler(void);
   void rfHandleReceived(const uint8_t *const pData, const uint8_t dataLength);
+
+  // New method for error status update
+  void update_error_status();
 
   typedef enum {
     StateStartup,
@@ -147,9 +157,6 @@ class ZehnderRF : public Component, public fan::Fan {
     RfStateRxWait,
   } RfState;
   RfState rfState_{RfStateIdle};
-
-  // New member variable to store the current error code
-  uint8_t current_error_code_{0};
 };
 
 }  // namespace zehnder
