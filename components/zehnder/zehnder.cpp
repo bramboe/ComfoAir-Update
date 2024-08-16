@@ -105,14 +105,14 @@ void ZehnderRF::setup() {
   rfConfig.band = true;
   rfConfig.channel = 118;
 
-  // // CRC 16
+  // CRC 16
   rfConfig.crc_enable = true;
   rfConfig.crc_bits = 16;
 
-  // // TX power 10
+  // TX power 10
   rfConfig.tx_power = 10;
 
-  // // RX power normal
+  // RX power normal
   rfConfig.rx_power = nrf905::PowerNormal;
 
   rfConfig.rx_address = 0x89816EA9;  // ZEHNDER_NETWORK_LINK_ID;
@@ -202,4 +202,15 @@ void ZehnderRF::loop(void) {
       // For now just set TX
       break;
 
-    case
+    // Add more states here as needed, for example:
+    // case StatePolling:
+    //   // Code for polling state
+    //   break;
+
+    default:
+      break;
+  }
+}
+
+}  // namespace zehnder
+}  // namespace esphome
