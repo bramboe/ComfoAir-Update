@@ -57,10 +57,12 @@ typedef struct __attribute__((packed)) {
   } payload;
 } RfFrame;
 
-ZehnderRF::ZehnderRF(void) : PollingComponent(1000), state_(StateIdle), speed_(0), retries_(3), rfState_(RfStateIdle), last_successful_communication(0), lastFanQuery_(0) {}
+ZehnderRF::ZehnderRF() : state_(StateIdle), retries_(10), rfState_(RfStateIdle), last_successful_communication(0), lastFanQuery_(0), error_code_(NO_ERROR) {
+  this->set_update_interval(1000);  // Set default update interval
+}
 
-fan::FanTraits ZehnderRF::get_traits() { 
-  return fan::FanTraits(false, true, false, this->speed_count_); 
+fan::FanTraits ZehnderRF::get_traits() {
+  return fan::FanTraits(false, true, false, this->speed_count_);
 }
 
 void ZehnderRF::control(const fan::FanCall &call) {
@@ -69,16 +71,16 @@ void ZehnderRF::control(const fan::FanCall &call) {
     ESP_LOGD(TAG, "Control has state: %u", this->state_);
   }
   if (call.get_speed().has_value()) {
-    this->speed_ = *call.get_speed();
-    ESP_LOGD(TAG, "Control has speed: %u", this->speed_);
+    this->newSpeed = *call.get_speed();
+    ESP_LOGD(TAG, "Control has speed: %u", this->newSpeed);
+    this->newSetting = true;
   }
 
   switch (this->state_) {
     case StateIdle:
-      // Set speed
-      this->setSpeed(this->state_ ? this->speed_ : 0x00, 0);
-
+      this->setSpeed(this->newSetting ? this->newSpeed : 0x00, 0);
       this->lastFanQuery_ = millis();  // Update time
+      this->newSetting = false;
       break;
 
     default:
@@ -207,7 +209,6 @@ void ZehnderRF::loop() {
       // For now just set TX
       break;
 
-    // Additional states handling
     case StatePolling:
       // Code for polling state
       if (millis() - this->lastFanQuery_ > 10000) {
@@ -224,7 +225,6 @@ void ZehnderRF::loop() {
 }
 
 void ZehnderRF::update_error_status() {
-  // Placeholder for actual error status update
   // Set error_code_ based on actual device state
   if (/* Communication error condition */) {
     this->error_code_ = E01_COMMUNICATION_ERROR;
