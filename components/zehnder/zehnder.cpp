@@ -16,10 +16,16 @@ void ZehnderRF::setup() {
 void ZehnderRF::dump_config() {
   ESP_LOGCONFIG(TAG, "ZehnderRF:");
   ESP_LOGCONFIG(TAG, "  Update Interval: %d ms", this->interval_);
-  ESP_LOGCONFIG(TAG, "  RF Frequency: %d", rf_->get_frequency());
-  ESP_LOGCONFIG(TAG, "  RF Power: %d", rf_->get_power());
-  ESP_LOGCONFIG(TAG, "  RF Data Rate: %d", rf_->get_data_rate());
-  ESP_LOGCONFIG(TAG, "  RF Address: %s", rf_->get_address().c_str());
+
+  if (this->rf_) {
+    // Ensure that these methods are available in your nRF905 class
+    ESP_LOGCONFIG(TAG, "  RF Frequency: %d", this->rf_->get_frequency());
+    ESP_LOGCONFIG(TAG, "  RF Power: %d", this->rf_->get_power());
+    ESP_LOGCONFIG(TAG, "  RF Data Rate: %d", this->rf_->get_data_rate());
+    ESP_LOGCONFIG(TAG, "  RF Address: %s", this->rf_->get_address().c_str());
+  } else {
+    ESP_LOGCONFIG(TAG, "  RF configuration not available");
+  }
 }
 
 fan::FanTraits ZehnderRF::get_traits() {
@@ -39,7 +45,7 @@ void ZehnderRF::loop() {
 }
 
 void ZehnderRF::control(const fan::FanCall &call) {
-  if (call.get_state() == fan::FanState::ON) {
+  if (call.get_state() == fan::FanState::STATE_ON) {
     this->state_ = StateActive;
   } else {
     this->state_ = StateIdle;
@@ -85,11 +91,11 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 }
 
 void ZehnderRF::update_error_status() {
-  if (/* Communication error condition */) {
+  if (millis() - last_successful_communication > FAN_REPLY_TIMEOUT) {
     error_code = E01_COMMUNICATION_ERROR;
   } else if (/* Fan malfunction condition */) {
     error_code = E03_FAN_MALFUNCTION;
-  } else if (/* Filter replacement needed condition */) {
+  } else if (filter_runtime > /* threshold */) {
     error_code = E05_FILTER_REPLACEMENT_NEEDED;
   } else {
     error_code = NO_ERROR;
