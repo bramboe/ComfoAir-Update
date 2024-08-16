@@ -22,16 +22,18 @@ enum State {
   StateActive,
   StatePolling,
   StateTxBusy,
+  StateStartup,
+  StateStartDiscovery,
 };
 
 ZehnderRF::ZehnderRF() 
-  : state_(StateIdle), 
+  : state_(StateStartup), // Initialized to StateStartup for initial setup
     retries_(10), 
     rfState_(RfStateIdle), 
     last_successful_communication(0), 
     lastFanQuery_(0), 
     error_code(NO_ERROR) {
-  this->set_update_interval(1000);
+  this->set_update_interval(1000); // Set update interval to 1 second
 }
 
 fan::FanTraits ZehnderRF::get_traits() {
@@ -78,6 +80,8 @@ void ZehnderRF::setup() {
   this->pref_ = global_preferences->make_preference<Config>(hash, true);
   if (this->pref_.load(&this->config_)) {
     ESP_LOGD(TAG, "Config load ok");
+  } else {
+    ESP_LOGW(TAG, "Failed to load config");
   }
 
   nrf905::Config rfConfig;
@@ -106,7 +110,7 @@ void ZehnderRF::setup() {
   this->rf_->setOnTxReady([this]() {
     ESP_LOGD(TAG, "Tx Ready");
     if (this->rfState_ == RfStateTxBusy) {
-      if (this->retries_ >= 0) {
+      if (this->retries_ > 0) {
         this->msgSendTime_ = millis();
         this->rfState_ = RfStateRxWait;
       } else {
@@ -185,6 +189,7 @@ void ZehnderRF::loop() {
 }
 
 void ZehnderRF::update_error_status() {
+  // Example conditions, update with actual logic
   if (/* Communication error condition */) {
     this->error_code = E01_COMMUNICATION_ERROR;
   } else if (/* Fan malfunction condition */) {
