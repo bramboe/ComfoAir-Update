@@ -82,6 +82,7 @@ void ZehnderRF::control(const fan::FanCall &call) {
       break;
   }
 
+  this->last_successful_communication = millis();
   this->publish_state();
 }
 
@@ -166,6 +167,9 @@ void ZehnderRF::loop(void) {
   // Run RF handler
   this->rfHandler();
 
+  // Update error status
+  this->update_error_status();
+
   switch (this->state_) {
     case StateStartup:
       // Wait until started up
@@ -198,15 +202,4 @@ void ZehnderRF::loop(void) {
       // For now just set TX
       break;
 
-    case StateIdle:
-      if (newSetting == true) {
-        this->setSpeed(newSpeed, newTimer);
-      } else {
-        if ((millis() - this->lastFanQuery_) > this->interval_) {
-          this->queryDevice();
-        }
-      }
-      break;
-
-    case StateWaitSetSpeedConfirm:
-      if (this->rfState_ == Rf
+    case
