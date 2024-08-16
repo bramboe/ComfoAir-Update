@@ -21,8 +21,8 @@ enum {
   FAN_TYPE_BROADCAST = 0x00,       // Broadcast to all devices
   FAN_TYPE_MAIN_UNIT = 0x01,       // Fans
   FAN_TYPE_REMOTE_CONTROL = 0x03,  // Remote controls
-  FAN_TYPE_CO2_SENSOR = 0x18
-};  // CO2 sensors
+  FAN_TYPE_CO2_SENSOR = 0x18       // CO2 sensors
+};
 
 /* Fan commands */
 enum {
@@ -35,7 +35,6 @@ enum {
   FAN_TYPE_FAN_SETTINGS = 0x07,  // Current settings, sent by fan in reply to 0x01, 0x02, 0x10
   FAN_FRAME_0B = 0x0B,
   FAN_NETWORK_JOIN_ACK = 0x0C,
-  // FAN_NETWORK_JOIN_FINISH = 0x0D,
   FAN_TYPE_QUERY_NETWORK = 0x0D,
   FAN_TYPE_QUERY_DEVICE = 0x10,
   FAN_FRAME_SETVOLTAGE_REPLY = 0x1D
@@ -47,14 +46,22 @@ enum {
   FAN_SPEED_LOW = 0x01,     // Low:     30% or  3.0 volt
   FAN_SPEED_MEDIUM = 0x02,  // Medium:  50% or  5.0 volt
   FAN_SPEED_HIGH = 0x03,    // High:    90% or  9.0 volt
-  FAN_SPEED_MAX = 0x04
-};  // Max:    100% or 10.0 volt
+  FAN_SPEED_MAX = 0x04      // Max:    100% or 10.0 volt
+};
 
+// Network ID constants
 #define NETWORK_LINK_ID 0xA55A5AA5
 #define NETWORK_DEFAULT_ID 0xE7E7E7E7
 #define FAN_JOIN_DEFAULT_TIMEOUT 10000
 
+// Result codes
 typedef enum { ResultOk, ResultBusy, ResultFailure } Result;
+
+// Error codes
+#define NO_ERROR 0
+#define E01_COMMUNICATION_ERROR 1
+#define E03_FAN_MALFUNCTION 3
+#define E05_FILTER_REPLACEMENT_NEEDED 5
 
 class ZehnderRF : public Component, public fan::Fan {
  public:
@@ -62,9 +69,8 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void setup() override;
 
-  // Setup things
+  // Setup methods
   void set_rf(nrf905::nRF905 *const pRf) { rf_ = pRf; }
-
   void set_update_interval(const uint32_t interval) { interval_ = interval; }
 
   void dump_config() override;
@@ -73,7 +79,6 @@ class ZehnderRF : public Component, public fan::Fan {
   int get_speed_count() { return this->speed_count_; }
 
   void loop() override;
-
   void control(const fan::FanCall &call) override;
 
   float get_setup_priority() const override { return setup_priority::DATA; }
@@ -86,24 +91,23 @@ class ZehnderRF : public Component, public fan::Fan {
   // New members for error detection
   uint32_t last_successful_communication{0};
   uint32_t filter_runtime{0};
-  uint8_t error_code{0};
+  uint8_t error_code{NO_ERROR}; // Initialize to NO_ERROR
 
-  // New method to get error code
+  // Method to get the error code
   uint8_t get_error_code() { return error_code; }
 
  protected:
   void queryDevice(void);
-
   uint8_t createDeviceID(void);
   void discoveryStart(const uint8_t deviceId);
 
   Result startTransmit(const uint8_t *const pData, const int8_t rxRetries = -1,
-                       const std::function<void(void)> callback = NULL);
+                       const std::function<void(void)> callback = nullptr);
   void rfComplete(void);
   void rfHandler(void);
   void rfHandleReceived(const uint8_t *const pData, const uint8_t dataLength);
 
-  // New method for error status update
+  // New method for updating the error status
   void update_error_status();
 
   typedef enum {
@@ -140,7 +144,7 @@ class ZehnderRF : public Component, public fan::Fan {
   Config config_;
 
   uint32_t lastFanQuery_{0};
-  std::function<void(void)> onReceiveTimeout_ = NULL;
+  std::function<void(void)> onReceiveTimeout_ = nullptr;
 
   uint32_t msgSendTime_{0};
   uint32_t airwayFreeWaitTime_{0};
@@ -152,9 +156,9 @@ class ZehnderRF : public Component, public fan::Fan {
 
   typedef enum {
     RfStateIdle,            // Idle state
-    RfStateWaitAirwayFree,  // wait for airway free
-    RfStateTxBusy,          //
-    RfStateRxWait,
+    RfStateWaitAirwayFree,  // Wait for airway to be free
+    RfStateTxBusy,          // Transmission busy
+    RfStateRxWait,          // Waiting for reception
   } RfState;
   RfState rfState_{RfStateIdle};
 };
