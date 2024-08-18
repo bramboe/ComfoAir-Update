@@ -7,35 +7,141 @@ namespace zehnder {
 
 static const char *const TAG = "zehnder";
 
-typedef struct {
-  uint8_t rx_type;
+// Definitions for RF payloads and frames
+typedef struct __attribute__((packed)) {
+  uint32_t networkId;
+} RfPayloadNetworkJoinOpen;
+
+typedef struct __attribute__((packed)) {
+  uint32_t networkId;
+} RfPayloadNetworkJoinRequest;
+
+typedef struct __attribute__((packed)) {
+  uint32_t networkId;
+} RfPayloadNetworkJoinAck;
+
+typedef struct __attribute__((packed)) {
+  uint8_t speed;
+  uint8_t voltage;
+  uint8_t timer;
+} RfPayloadFanSettings;
+
+typedef struct __attribute__((packed)) {
+  uint8_t speed;
+} RfPayloadFanSetSpeed;
+
+typedef struct __attribute__((packed)) {
+  uint8_t speed;
+  uint8_t timer;
+} RfPayloadFanSetTimer;
+
+typedef struct __attribute__((packed)) {
+  uint8_t rx_type;          // 0x00 RX Type
+  uint8_t rx_id;            // 0x01 RX ID
+  uint8_t tx_type;          // 0x02 TX Type
+  uint8_t tx_id;            // 0x03 TX ID
+  uint8_t ttl;              // 0x04 Time-To-Live
+  uint8_t command;          // 0x05 Frame type
+  uint8_t parameter_count;  // 0x06 Number of parameters
+
   union {
-    struct {
-      uint32_t networkId;
-    } networkJoinRequest;
-    struct {
-      uint32_t networkId;
-    } networkJoinOpen;
-    // Add other payload structures if needed
+    uint8_t parameters[9];                           // 0x07 - 0x0F Depends on command
+    RfPayloadFanSetSpeed setSpeed;                   // Command 0x02
+    RfPayloadFanSetTimer setTimer;                   // Command 0x03
+    RfPayloadNetworkJoinRequest networkJoinRequest;  // Command 0x04
+    RfPayloadNetworkJoinOpen networkJoinOpen;        // Command 0x06
+    RfPayloadFanSettings fanSettings;                // Command 0x07
+    RfPayloadNetworkJoinAck networkJoinAck;          // Command 0x0C
   } payload;
 } RfFrame;
 
-ZehnderRF::ZehnderRF() : rf_(nullptr), interval_(1000), error_code_(NO_ERROR) {}
-
-void ZehnderRF::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up Zehnder RF...");
-}
-
-void ZehnderRF::dump_config() {
-  ESP_LOGCONFIG(TAG, "Zehnder RF:");
-  ESP_LOGCONFIG(TAG, "  Update Interval: %u ms", this->interval_);
-}
+ZehnderRF::ZehnderRF() : rf_(nullptr), interval_(1000), error_code_(NO_ERROR), speed_count_(4), lastFanQuery_(0) {}
 
 fan::FanTraits ZehnderRF::get_traits() {
   auto traits = fan::FanTraits();
-  traits.set_supports_speed(true);
-  traits.set_speed_count(this->speed_count_);
+  traits.set_supports_speed(true);  // Ensure this method exists in your version of FanTraits
+  traits.set_speed_count(this->speed_count_);  // Ensure this method exists in your version of FanTraits
   return traits;
+}
+
+void ZehnderRF::control(const fan::FanCall &call) {
+  if (call.get_state().has_value()) {
+    this->state_ = *call.get_state();
+    ESP_LOGD(TAG, "Control has state: %u", this->state_);
+  }
+  if (call.get_speed().has_value()) {
+    this->speed_ = *call.get_speed();
+    ESP_LOGD(TAG, "Control has speed: %u", this->speed_);
+  }
+
+  if (this->state_ == StateIdle) {
+    this->setSpeed(this->state_ ? this->speed_ : 0x00, 0);
+    this->lastFanQuery_ = millis();  // Update time
+  }
+
+  this->publish_state();
+}
+
+void ZehnderRF::setup() {
+  ESP_LOGCONFIG(TAG, "Setting up Zehnder RF...");
+  
+  // Clear config
+  memset(&this->config_, 0, sizeof(Config));
+  
+  uint32_t hash = fnv1_hash("zehnderrf");
+  this->pref_ = global_preferences->make_preference<Config>(hash, true);
+  if (this->pref_.load(&this->config_)) {
+    ESP_LOGD(TAG, "Config load ok");
+  }
+  
+  // Set nRF905 config
+  nrf905::Config rfConfig;
+  rfConfig = this->rf_->getConfig();
+  
+  rfConfig.band = true;
+  rfConfig.channel = 118;
+  rfConfig.crc_enable = true;
+  rfConfig.crc_bits = 16;
+  rfConfig.tx_power = 10;
+  rfConfig.rx_power = nrf905::PowerNormal;
+  rfConfig.rx_address = 0x89816EA9;  // ZEHNDER_NETWORK_LINK_ID
+  rfConfig.rx_address_width = 4;
+  rfConfig.rx_payload_width = 16;
+  rfConfig.tx_address_width = 4;
+  rfConfig.tx_payload_width = 16;
+  rfConfig.xtal_frequency = 16000000;  // defaults for now
+  rfConfig.clkOutFrequency = nrf905::ClkOut500000;
+  rfConfig.clkOutEnable = false;
+  
+  this->rf_->updateConfig(&rfConfig);
+  this->rf_->writeTxAddress(0x89816EA9);
+  
+  this->rf_->setOnTxReady([this]() {
+    ESP_LOGD(TAG, "Tx Ready");
+    if (this->rfState_ == RfStateTxBusy) {
+      if (this->retries_ >= 0) {
+        this->msgSendTime_ = millis();
+        this->rfState_ = RfStateRxWait;
+      } else {
+        this->rfState_ = RfStateIdle;
+      }
+    }
+  });
+
+  this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
+    ESP_LOGV(TAG, "Received frame");
+    this->rfHandleReceived(pData, dataLength);
+  });
+}
+
+void ZehnderRF::dump_config() {
+  ESP_LOGCONFIG(TAG, "Zehnder Fan config:");
+  ESP_LOGCONFIG(TAG, "  Polling interval   %u", this->interval_);
+  ESP_LOGCONFIG(TAG, "  Fan networkId      0x%08X", this->config_.fan_networkId);
+  ESP_LOGCONFIG(TAG, "  Fan my device type 0x%02X", this->config_.fan_my_device_type);
+  ESP_LOGCONFIG(TAG, "  Fan my device id   0x%02X", this->config_.fan_my_device_id);
+  ESP_LOGCONFIG(TAG, "  Fan main_unit type 0x%02X", this->config_.fan_main_unit_type);
+  ESP_LOGCONFIG(TAG, "  Fan main unit id   0x%02X", this->config_.fan_main_unit_id);
 }
 
 void ZehnderRF::loop() {
@@ -45,41 +151,105 @@ void ZehnderRF::loop() {
   }
 }
 
-void ZehnderRF::control(const fan::FanCall &call) {
-  this->setSpeed(call.get_speed(), call.get_timer());
-}
-
-void ZehnderRF::setSpeed(const uint8_t speed, const uint8_t timer) {
-  RfFrame *const pTxFrame = (RfFrame *) this->_txFrame;
-  pTxFrame->rx_type = FAN_FRAME_SETSPEED;
-  pTxFrame->payload.networkJoinRequest.networkId = this->config_.fan_networkId;
-  // Set other fields as needed
-
-  this->rf_->transmit((uint8_t *) pTxFrame, sizeof(RfFrame));
-}
-
-void ZehnderRF::queryDevice() {
-  // Implementation to query the device
-}
-
 void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataLength) {
-  const RfFrame *const pResponse = (RfFrame *) pData;
-  RfFrame *const pTxFrame = (RfFrame *) this->_txFrame;  // frame helper
+  const RfFrame *const pResponse = (RfFrame *)pData;
+  RfFrame *const pTxFrame = (RfFrame *)this->_txFrame;
+  nrf905::Config rfConfig;
 
+  ESP_LOGD(TAG, "Current state: 0x%02X", this->state_);
   switch (this->state_) {
-    case StateDiscoveryWaitForNetworkJoinOpen:
+    case StateDiscoveryWaitForJoinResponse:
       if (dataLength == sizeof(RfPayloadNetworkJoinOpen)) {
         if (pResponse->payload.networkJoinOpen.networkId == this->config_.fan_networkId) {
           pTxFrame->rx_type = 0x02;  // Example value
-          this->rf_->transmit((uint8_t *) pTxFrame, sizeof(RfFrame));
+          this->rf_->send((uint8_t *)pTxFrame, sizeof(RfFrame));
         }
       }
       break;
 
-    // Handle other states and responses
+    case StateIdle:
+      switch (pResponse->command) {
+        case FAN_SET_SPEED:
+          if (pResponse->payload.setSpeed.speed != this->speed_) {
+            ESP_LOGD(TAG, "Received speed %u", pResponse->payload.setSpeed.speed);
+            this->setSpeed(pResponse->payload.setSpeed.speed, 0);
+          }
+          break;
+
+        case FAN_SET_TIMER:
+          if (pResponse->payload.setTimer.timer != this->timer_) {
+            ESP_LOGD(TAG, "Received timer %u", pResponse->payload.setTimer.timer);
+            this->setTimer(pResponse->payload.setTimer.timer);
+          }
+          break;
+
+        case FAN_SETTINGS:
+          ESP_LOGD(TAG, "Received fan settings");
+          this->fanSettingsReceived(pResponse->payload.fanSettings);
+          break;
+
+        default:
+          break;
+      }
+      break;
+
     default:
       break;
   }
+}
+
+void ZehnderRF::fanSettingsReceived(const RfPayloadFanSettings &settings) {
+  this->speed_ = settings.speed;
+  this->voltage_ = settings.voltage;
+  this->timer_ = settings.timer;
+  this->publish_state();
+}
+
+void ZehnderRF::queryDevice() {
+  RfFrame frame;
+  frame.rx_type = 0x00;
+  frame.rx_id = 0x00;
+  frame.tx_type = 0x00;
+  frame.tx_id = 0x00;
+  frame.ttl = 0x00;
+  frame.command = FAN_QUERY;
+  frame.parameter_count = 0;
+
+  this->rf_->send(reinterpret_cast<const uint8_t*>(&frame), sizeof(frame));
+  ESP_LOGD(TAG, "Sent query to device");
+}
+
+void ZehnderRF::setSpeed(uint8_t speed, uint8_t timer) {
+  RfFrame frame;
+  frame.rx_type = 0x00;
+  frame.rx_id = 0x00;
+  frame.tx_type = 0x00;
+  frame.tx_id = 0x00;
+  frame.ttl = 0x00;
+  frame.command = FAN_SET_SPEED;
+  frame.parameter_count = sizeof(RfPayloadFanSetSpeed);
+
+  frame.payload.setSpeed.speed = speed;
+  frame.payload.setSpeed.timer = timer;
+
+  this->rf_->send(reinterpret_cast<const uint8_t*>(&frame), sizeof(frame));
+  ESP_LOGD(TAG, "Sent set speed %u", speed);
+}
+
+void ZehnderRF::setTimer(uint8_t timer) {
+  RfFrame frame;
+  frame.rx_type = 0x00;
+  frame.rx_id = 0x00;
+  frame.tx_type = 0x00;
+  frame.tx_id = 0x00;
+  frame.ttl = 0x00;
+  frame.command = FAN_SET_TIMER;
+  frame.parameter_count = sizeof(RfPayloadFanSetTimer);
+
+  frame.payload.setTimer.timer = timer;
+
+  this->rf_->send(reinterpret_cast<const uint8_t*>(&frame), sizeof(frame));
+  ESP_LOGD(TAG, "Sent set timer %u", timer);
 }
 
 ZehnderRF::ErrorCode ZehnderRF::get_error_code() const {
@@ -88,4 +258,3 @@ ZehnderRF::ErrorCode ZehnderRF::get_error_code() const {
 
 }  // namespace zehnder
 }  // namespace esphome
-
