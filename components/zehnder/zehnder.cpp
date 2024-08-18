@@ -56,7 +56,7 @@ typedef struct __attribute__((packed)) {
   } payload;
 } RfFrame;
 
-ZehnderRF::ZehnderRF(void) : errorCode_(NO_ERROR) {} 
+ZehnderRF::ZehnderRF(void) {}
 
 fan::FanTraits ZehnderRF::get_traits() { return fan::FanTraits(false, true, false, this->speed_count_); }
 
