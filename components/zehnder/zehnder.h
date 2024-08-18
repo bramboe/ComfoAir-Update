@@ -35,11 +35,9 @@ enum {
   FAN_TYPE_FAN_SETTINGS = 0x07,  // Current settings, sent by fan in reply to 0x01, 0x02, 0x10
   FAN_FRAME_0B = 0x0B,
   FAN_NETWORK_JOIN_ACK = 0x0C,
-  // FAN_NETWORK_JOIN_FINISH = 0x0D,
   FAN_TYPE_QUERY_NETWORK = 0x0D,
   FAN_TYPE_QUERY_DEVICE = 0x10,
-  FAN_FRAME_SETVOLTAGE_REPLY = 0x1D,
-  FAN_ERROR_REPORT = 0x1E, // Assuming 0x1E is the error report frame type
+  FAN_FRAME_SETVOLTAGE_REPLY = 0x1D
 };
 
 /* Fan speed presets */
@@ -81,10 +79,20 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void setSpeed(const uint8_t speed, const uint8_t timer = 0);
 
-  int get_error_code(); // Add this line
-
   bool timer;
   int voltage;
+
+  // Error handling enum and method
+  enum ErrorCode {
+    NO_ERROR = 0,
+    E01_COMMUNICATION_ERROR = 1,
+    E02_TEMPERATURE_SENSOR_FAILURE = 2,
+    E03_FAN_MALFUNCTION = 3,
+    E04_BYPASS_VALVE_ISSUE = 4,
+    E05_FILTER_REPLACEMENT_NEEDED = 5
+  };
+
+  ErrorCode get_error_code() const { return error_code_; }
 
  protected:
   void queryDevice(void);
@@ -150,8 +158,7 @@ class ZehnderRF : public Component, public fan::Fan {
   } RfState;
   RfState rfState_{RfStateIdle};
 
-  int errorCode_; // Add this line
-  uint32_t lastErrorTime_{0};
+  ErrorCode error_code_{NO_ERROR};  // Declare this to hold the error code
 };
 
 }  // namespace zehnder
