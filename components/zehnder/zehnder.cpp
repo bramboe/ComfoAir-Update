@@ -58,103 +58,55 @@ typedef struct __attribute__((packed)) {
 
 ZehnderRF::ZehnderRF(void) {}
 
-fan::FanTraits ZehnderRF::get_traits() { return fan::FanTraits(false, true, true, this->get_speed_count()); }
+fan::FanTraits ZehnderRF::get_traits() {
+  return fan::FanTraits(false, true, true, this->get_speed_count());
+}
 
 void ZehnderRF::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up Zehnder Fan...");
-
-  this->pref_ = global_preferences->make_preference<Config>(this->get_object_id_hash());
-  if (this->pref_.load(&this->config_)) {
-    ESP_LOGI(TAG, "Preferences loaded successfully");
-    state_ = StateIdle;
-  } else {
-    ESP_LOGI(TAG, "No existing preferences found, starting fresh");
-    state_ = StateStartup;
+  ESP_LOGCONFIG(TAG, "Setting up ZehnderRF...");
+  if (this->rf_ == nullptr) {
+    ESP_LOGE(TAG, "nRF905 RF object is not set");
+    return;
   }
 
-  rf_->setReceiveCb([this]() { this->rfHandler(); });
+  // Configuration code here...
+  this->queryDevice();
+}
+
+void ZehnderRF::dump_config() {
+  ESP_LOGCONFIG(TAG, "ZehnderRF:");
+  ESP_LOGCONFIG(TAG, "  Device ID: %d", this->config_.fan_my_device_id);
 }
 
 void ZehnderRF::control(const fan::FanCall &call) {
-  if (call.get_state().has_value()) {
-    if (*call.get_state()) {
-      if (call.get_speed().has_value()) {
-        uint8_t speed = *call.get_speed();
-        if (speed < this->speed_count_) {
-          this->setSpeed(speed);
-        } else {
-          ESP_LOGE(TAG, "Invalid speed %d", speed);
-          this->error_code_ = E03_FAN_MALFUNCTION;
-        }
-      } else {
-        this->setSpeed(FAN_SPEED_MEDIUM);  // Default to medium speed
-      }
-    } else {
-      this->setSpeed(FAN_SPEED_AUTO);  // Turn off
-    }
+  if (call.get_mode().has_value()) {
+    ESP_LOGD(TAG, "Fan mode change not supported");
   }
 
-  if (call.get_oscillating().has_value()) {
-    // Handle oscillation (if applicable)
-  }
-
-  if (call.get_direction().has_value()) {
-    // Handle direction (if applicable)
+  if (call.get_speed().has_value()) {
+    this->setSpeed(call.get_speed().value());
   }
 }
 
 void ZehnderRF::loop() {
-  // Periodic tasks, such as querying the device
-  if (state_ == StateIdle && (millis() - this->lastFanQuery_) > this->interval_) {
+  if (this->rf_ == nullptr) return;
+  
+  if (millis() - this->lastFanQuery_ > this->interval_) {
     this->queryDevice();
     this->lastFanQuery_ = millis();
   }
 }
 
-void ZehnderRF::dump_config() {
-  ESP_LOGCONFIG(TAG, "Zehnder Fan:");
-  ESP_LOGCONFIG(TAG, "  Network ID: 0x%08X", this->config_.fan_networkId);
-  ESP_LOGCONFIG(TAG, "  Device Type: 0x%02X", this->config_.fan_my_device_type);
-  ESP_LOGCONFIG(TAG, "  Device ID: 0x%02X", this->config_.fan_my_device_id);
-  ESP_LOGCONFIG(TAG, "  Main Unit Type: 0x%02X", this->config_.fan_main_unit_type);
-  ESP_LOGCONFIG(TAG, "  Main Unit ID: 0x%02X", this->config_.fan_main_unit_id);
-  ESP_LOGCONFIG(TAG, "  Error Code: %d", this->get_error_code());
-}
-
-void ZehnderRF::queryDevice(void) {
-  ESP_LOGD(TAG, "Querying device for status...");
-  // Implementation of device query
-}
-
 void ZehnderRF::setSpeed(const uint8_t speed, const uint8_t timer) {
-  ESP_LOGI(TAG, "Setting fan speed to %d with timer %d", speed, timer);
+  ESP_LOGD(TAG, "Setting fan speed: %d, timer: %d", speed, timer);
 
-  RfFrame frame = {};
-  frame.command = FAN_FRAME_SETSPEED;
-  frame.payload.setSpeed.speed = speed;
-  frame.ttl = FAN_TTL;
-
-  if (this->startTransmit(reinterpret_cast<const uint8_t *>(&frame), FAN_TX_RETRIES, nullptr) != ResultOk) {
-    this->error_code_ = E01_COMMUNICATION_ERROR;
-    ESP_LOGE(TAG, "Failed to transmit set speed command.");
-  }
+  this->newSpeed = speed;
+  this->newTimer = timer;
+  this->newSetting = true;
 }
 
-Result ZehnderRF::startTransmit(const uint8_t *const pData, const int8_t rxRetries,
-                                const std::function<void(void)> callback) {
-  // Implement the transmit process with retries
-  // If fails, set error_code_ to E01_COMMUNICATION_ERROR
-  return ResultOk;  // or ResultFailure if there is a problem
-}
-
-void ZehnderRF::rfComplete(void) {
-  // Called when RF communication completes
-  // Handle success or failure here and update error_code_ if needed
-}
-
-void ZehnderRF::rfHandler(void) {
-  // Handle received data and errors in communication
-  // If data is invalid, set error_code_ to E01_COMMUNICATION_ERROR
+void ZehnderRF::queryDevice() {
+  // Query the device for status or other information...
 }
 
 }  // namespace zehnder
