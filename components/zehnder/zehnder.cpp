@@ -73,15 +73,15 @@ void ZehnderRF::dump_config() {
 
 fan::FanTraits ZehnderRF::get_traits() {
   fan::FanTraits traits;
-  
+
   // Define the number of supported speeds
   traits.set_supported_speed_count(5);  // Number of speeds: AUTO, LOW, MEDIUM, HIGH, MAX
 
   // Define support for speed control
-  traits.supports_speed = true;
+  traits.set_supports_speed(true);
   
   // Define support for direction control (assuming not supported)
-  traits.supports_direction = false;
+  traits.set_supports_direction(false);
 
   return traits;
 }
