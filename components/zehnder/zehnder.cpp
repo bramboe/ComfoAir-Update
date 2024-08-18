@@ -5,74 +5,28 @@
 namespace esphome {
 namespace zehnder {
 
+#define MAX_TRANSMIT_TIME 2000
+
 static const char *const TAG = "zehnder";
 
-typedef struct __attribute__((packed)) {
-  uint32_t networkId;
-} RfPayloadNetworkJoinOpen;
-
-typedef struct __attribute__((packed)) {
-  uint32_t networkId;
-} RfPayloadNetworkJoinRequest;
-
-typedef struct __attribute__((packed)) {
-  uint32_t networkId;
-} RfPayloadNetworkJoinAck;
-
-typedef struct __attribute__((packed)) {
-  uint8_t speed;
-  uint8_t voltage;
-  uint8_t timer;
-} RfPayloadFanSettings;
-
-typedef struct __attribute__((packed)) {
-  uint8_t speed;
-} RfPayloadFanSetSpeed;
-
-typedef struct __attribute__((packed)) {
-  uint8_t speed;
-  uint8_t timer;
-} RfPayloadFanSetTimer;
-
-typedef struct __attribute__((packed)) {
-  uint8_t rx_type;          // 0x00 RX Type
-  uint8_t rx_id;            // 0x01 RX ID
-  uint8_t tx_type;          // 0x02 TX Type
-  uint8_t tx_id;            // 0x03 TX ID
-  uint8_t ttl;              // 0x04 Time-To-Live
-  uint8_t command;          // 0x05 Frame type
-  uint8_t parameter_count;  // 0x06 Number of parameters
-
-  union {
-    uint8_t parameters[9];                           // 0x07 - 0x0F Depends on command
-    RfPayloadFanSetSpeed setSpeed;                   // Command 0x02
-    RfPayloadFanSetTimer setTimer;                   // Command 0x03
-    RfPayloadNetworkJoinRequest networkJoinRequest;  // Command 0x04
-    RfPayloadNetworkJoinOpen networkJoinOpen;        // Command 0x06
-    RfPayloadFanSettings fanSettings;                // Command 0x07
-    RfPayloadNetworkJoinAck networkJoinAck;          // Command 0x0C
-  } payload;
-} RfFrame;
+ZehnderRF::ZehnderRF() : error_code_(NO_ERROR) {}
 
 void ZehnderRF::setup() {
   ESP_LOGCONFIG(TAG, "ZEHNDER '%s':", this->get_name().c_str());
 
-  // Clear config
   memset(&this->config_, 0, sizeof(Config));
 
   uint32_t hash = fnv1_hash("zehnderrf");
   this->pref_ = global_preferences->make_preference<Config>(hash, true);
-  if (!this->pref_.load(&this->config_)) {
-    ESP_LOGE(TAG, "Failed to load config");
-    this->handle_error(CONFIG_ERROR);
-  } else {
+  if (this->pref_.load(&this->config_)) {
     ESP_LOGD(TAG, "Config load ok");
+  } else {
+    ESP_LOGE(TAG, "Failed to load configuration, using defaults.");
+    this->error_code_ = E01_COMMUNICATION_ERROR;  // Set error state
   }
 
-  // Set nRF905 config
   nrf905::Config rfConfig;
   rfConfig = this->rf_->getConfig();
-
   rfConfig.band = true;
   rfConfig.channel = 118;
   rfConfig.crc_enable = true;
@@ -88,15 +42,8 @@ void ZehnderRF::setup() {
   rfConfig.clkOutFrequency = nrf905::ClkOut500000;
   rfConfig.clkOutEnable = false;
 
-  // Write config back
-  if (!this->rf_->updateConfig(&rfConfig)) {
-    ESP_LOGE(TAG, "Failed to update RF config");
-    this->handle_error(CONFIG_ERROR);
-  }
-  if (!this->rf_->writeTxAddress(0x89816EA9)) {
-    ESP_LOGE(TAG, "Failed to write TX address");
-    this->handle_error(CONFIG_ERROR);
-  }
+  this->rf_->updateConfig(&rfConfig);
+  this->rf_->writeTxAddress(0x89816EA9);
 
   this->speed_count_ = 4;
 
@@ -118,7 +65,7 @@ void ZehnderRF::setup() {
   });
 }
 
-void ZehnderRF::dump_config(void) {
+void ZehnderRF::dump_config() {
   ESP_LOGCONFIG(TAG, "Zehnder Fan config:");
   ESP_LOGCONFIG(TAG, "  Polling interval   %u", this->interval_);
   ESP_LOGCONFIG(TAG, "  Fan networkId      0x%08X", this->config_.fan_networkId);
@@ -126,13 +73,58 @@ void ZehnderRF::dump_config(void) {
   ESP_LOGCONFIG(TAG, "  Fan my device id   0x%02X", this->config_.fan_my_device_id);
   ESP_LOGCONFIG(TAG, "  Fan main_unit type 0x%02X", this->config_.fan_main_unit_type);
   ESP_LOGCONFIG(TAG, "  Fan main unit id   0x%02X", this->config_.fan_main_unit_id);
+
+  switch (this->error_code_) {
+    case NO_ERROR:
+      ESP_LOGI(TAG, "No errors detected.");
+      break;
+    case E01_COMMUNICATION_ERROR:
+      ESP_LOGE(TAG, "Communication error.");
+      break;
+    case E02_TEMPERATURE_SENSOR_FAILURE:
+      ESP_LOGE(TAG, "Temperature sensor failure.");
+      break;
+    case E03_FAN_MALFUNCTION:
+      ESP_LOGE(TAG, "Fan malfunction.");
+      break;
+    case E04_BYPASS_VALVE_ISSUE:
+      ESP_LOGE(TAG, "Bypass valve issue.");
+      break;
+    case E05_FILTER_REPLACEMENT_NEEDED:
+      ESP_LOGE(TAG, "Filter replacement needed.");
+      break;
+    default:
+      ESP_LOGE(TAG, "Unknown error code.");
+      break;
+  }
 }
 
-void ZehnderRF::loop(void) {
+void ZehnderRF::control(const fan::FanCall &call) {
+  if (call.get_state().has_value()) {
+    this->state = *call.get_state();
+    ESP_LOGD(TAG, "Control has state: %u", this->state);
+  }
+  if (call.get_speed().has_value()) {
+    this->speed = *call.get_speed();
+    ESP_LOGD(TAG, "Control has speed: %u", this->speed);
+  }
+
+  switch (this->state_) {
+    case StateIdle:
+      this->setSpeed(this->state ? this->speed : 0x00, 0);
+      this->lastFanQuery_ = millis();  // Update time
+      break;
+    default:
+      break;
+  }
+
+  this->publish_state();
+}
+
+void ZehnderRF::loop() {
   uint8_t deviceId;
   nrf905::Config rfConfig;
 
-  // Run RF handler
   this->rfHandler();
 
   switch (this->state_) {
@@ -145,18 +137,10 @@ void ZehnderRF::loop(void) {
           this->state_ = StateStartDiscovery;
         } else {
           ESP_LOGD(TAG, "Config data valid, start polling");
-
           rfConfig = this->rf_->getConfig();
           rfConfig.rx_address = this->config_.fan_networkId;
-          if (!this->rf_->updateConfig(&rfConfig)) {
-            ESP_LOGE(TAG, "Failed to update RF config during startup");
-            this->handle_error(CONFIG_ERROR);
-          }
-          if (!this->rf_->writeTxAddress(this->config_.fan_networkId)) {
-            ESP_LOGE(TAG, "Failed to write TX address during startup");
-            this->handle_error(CONFIG_ERROR);
-          }
-
+          this->rf_->updateConfig(&rfConfig);
+          this->rf_->writeTxAddress(this->config_.fan_networkId);
           this->queryDevice();
         }
       }
@@ -168,7 +152,7 @@ void ZehnderRF::loop(void) {
       break;
 
     case StateIdle:
-      if (newSetting == true) {
+      if (newSetting) {
         this->setSpeed(newSpeed, newTimer);
       } else {
         if ((millis() - this->lastFanQuery_) > this->interval_) {
@@ -191,152 +175,92 @@ void ZehnderRF::loop(void) {
 void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataLength) {
   const RfFrame *const pResponse = (RfFrame *) pData;
   RfFrame *const pTxFrame = (RfFrame *) this->_txFrame;  // frame helper
-  nrf905::Config rfConfig;
 
   ESP_LOGD(TAG, "Current state: 0x%02X", this->state_);
   switch (this->state_) {
     case StateDiscoveryWaitForLinkRequest:
-      ESP_LOGD(TAG, "DiscoverStateWaitForLinkRequest");
-      switch (pResponse->command) {
-        case FAN_NETWORK_JOIN_OPEN:
-          ESP_LOGD(TAG, "Discovery: Found unit type 0x%02X (%s) with ID 0x%02X on network 0x%08X", pResponse->payload.networkJoinOpen.networkId);
-          this->discoverySetUnit(pResponse->payload.networkJoinOpen.networkId);
-          this->state_ = StateDiscoveryLinkSendAck;
-          break;
-
-        default:
-          break;
+      if (dataLength == sizeof(RfPayloadNetworkJoinRequest)) {
+        if (pResponse->payload.networkJoinRequest.networkId == this->config_.fan_networkId) {
+          if (this->config_.fan_main_unit_type == pResponse->tx_id) {
+            pTxFrame->rx_type = 0x02;
+            pTxFrame->rx_id = this->config_.fan_my_device_type;
+            pTxFrame->tx_type = pResponse->tx_id;
+            pTxFrame->tx_id = pResponse->rx_id;
+            pTxFrame->ttl = 0x03;
+            pTxFrame->command = 0x0C;
+            pTxFrame->parameter_count = 0;
+            this->rf_->send((uint8_t *) pTxFrame, sizeof(RfFrame));
+            this->state_ = StateIdle;
+          }
+        }
       }
       break;
 
-    case StateDiscoveryLinkSendAck:
-      ESP_LOGD(TAG, "DiscoverStateLinkSendAck");
-      switch (pResponse->command) {
-        case FAN_NETWORK_JOIN_ACK:
-          ESP_LOGD(TAG, "Discovery: Received network join ack from main unit");
-          rfConfig = this->rf_->getConfig();
-          rfConfig.rx_address = this->config_.fan_networkId;
-          if (!this->rf_->updateConfig(&rfConfig)) {
-            ESP_LOGE(TAG, "Failed to update RF config during discovery");
-            this->handle_error(CONFIG_ERROR);
-          }
-          if (!this->rf_->writeTxAddress(this->config_.fan_networkId)) {
-            ESP_LOGE(TAG, "Failed to write TX address during discovery");
-            this->handle_error(CONFIG_ERROR);
-          }
-
-          this->queryDevice();
+    case StateDiscoveryWaitForNetworkJoinOpen:
+      if (dataLength == sizeof(RfPayloadNetworkJoinOpen)) {
+        if (pResponse->payload.networkJoinOpen.networkId == this->config_.fan_networkId) {
+          pTxFrame->rx_type = 0x02;
+          pTxFrame->rx_id = this->config_.fan_my_device_type;
+          pTxFrame->tx_type = pResponse->tx_id;
+          pTxFrame->tx_id = pResponse->rx_id;
+          pTxFrame->ttl = 0x03;
+          pTxFrame->command = 0x07;
+          pTxFrame->parameter_count = 3;
+          pTxFrame->payload.fanSettings.speed = this->speed_count_;
+          pTxFrame->payload.fanSettings.voltage = 0xFF;
+          pTxFrame->payload.fanSettings.timer = 0xFF;
+          this->rf_->send((uint8_t *) pTxFrame, sizeof(RfFrame));
           this->state_ = StateIdle;
-          break;
-
-        default:
-          break;
+        }
       }
       break;
 
     case StateIdle:
-      switch (pResponse->command) {
-        case FAN_SET_SPEED:
-          if (pResponse->payload.setSpeed.speed != this->speed) {
-            ESP_LOGD(TAG, "Received speed %u", pResponse->payload.setSpeed.speed);
-            this->setSpeed(pResponse->payload.setSpeed.speed, 0);
-          }
-          break;
+      break;
 
-        case FAN_SET_TIMER:
-          if (pResponse->payload.setTimer.timer != this->timer) {
-            ESP_LOGD(TAG, "Received timer %u", pResponse->payload.setTimer.timer);
-            this->setTimer(pResponse->payload.setTimer.timer);
-          }
-          break;
+    case StateWaitSetSpeedConfirm:
+      break;
 
-        case FAN_SETTINGS:
-          ESP_LOGD(TAG, "Received fan settings");
-          this->fanSettingsReceived(pResponse->payload.fanSettings);
-          break;
+    default:
+      break;
+  }
+}
 
-        default:
-          ESP_LOGW(TAG, "Unknown command: %d", pResponse->command);
-          break;
+void ZehnderRF::rfHandler(void) {
+  uint32_t currentMillis = millis();
+
+  if (this->rfState_ == RfStateRxWait) {
+    if ((currentMillis - this->msgSendTime_) > MAX_TRANSMIT_TIME) {
+      this->rfState_ = RfStateIdle;
+      this->retries_--;
+      if (this->retries_ >= 0) {
+        this->msgSendTime_ = millis();
+        this->rfState_ = RfStateTxBusy;
+      } else {
+        this->rfState_ = RfStateIdle;
       }
-      break;
-
-    default:
-      break;
+    }
   }
 }
 
-void ZehnderRF::fanSettingsReceived(const RfPayloadFanSettings &settings) {
-  this->speed = settings.speed;
-  this->voltage = settings.voltage;
-  this->timer = settings.timer;
-  this->publish_state();
-}
+void ZehnderRF::setSpeed(const uint8_t speed, const uint8_t timer) {
+  if (this->rfState_ == RfStateIdle) {
+    RfFrame *const pTxFrame = (RfFrame *) this->_txFrame;
 
-void ZehnderRF::queryDevice(void) {
-  RfFrame frame;
-  frame.rx_type = 0x00;
-  frame.rx_id = 0x00;
-  frame.tx_type = 0x00;
-  frame.tx_id = 0x00;
-  frame.ttl = 0x00;
-  frame.command = FAN_QUERY;  // Command to query the device
-  frame.parameter_count = 0;
+    pTxFrame->rx_type = 0x02;
+    pTxFrame->rx_id = this->config_.fan_my_device_type;
+    pTxFrame->tx_type = this->config_.fan_main_unit_type;
+    pTxFrame->tx_id = this->config_.fan_main_unit_id;
+    pTxFrame->ttl = 0x03;
+    pTxFrame->command = 0x02;
+    pTxFrame->parameter_count = 1;
+    pTxFrame->payload.setSpeed.speed = speed;
 
-  if (!this->rf_->send(reinterpret_cast<const uint8_t*>(&frame), sizeof(frame))) {
-    ESP_LOGE(TAG, "Failed to send query to device");
-    this->handle_error(CONFIG_ERROR);
-  }
-  ESP_LOGD(TAG, "Sent query to device");
-}
-
-void ZehnderRF::setSpeed(uint8_t speed, uint8_t timer) {
-  RfFrame frame;
-  frame.rx_type = 0x00;
-  frame.rx_id = 0x00;
-  frame.tx_type = 0x00;
-  frame.tx_id = 0x00;
-  frame.ttl = 0x00;
-  frame.command = FAN_SET_SPEED;
-  frame.parameter_count = sizeof(RfPayloadFanSetSpeed);
-
-  frame.payload.setSpeed.speed = speed;
-  frame.payload.setSpeed.timer = timer;
-
-  if (!this->rf_->send(reinterpret_cast<const uint8_t*>(&frame), sizeof(frame))) {
-    ESP_LOGE(TAG, "Failed to send set speed command");
-    this->handle_error(CONFIG_ERROR);
-  }
-  ESP_LOGD(TAG, "Sent set speed %u", speed);
-}
-
-void ZehnderRF::setTimer(uint8_t timer) {
-  RfFrame frame;
-  frame.rx_type = 0x00;
-  frame.rx_id = 0x00;
-  frame.tx_type = 0x00;
-  frame.tx_id = 0x00;
-  frame.ttl = 0x00;
-  frame.command = FAN_SET_TIMER;
-  frame.parameter_count = sizeof(RfPayloadFanSetTimer);
-
-  frame.payload.setTimer.timer = timer;
-
-  if (!this->rf_->send(reinterpret_cast<const uint8_t*>(&frame), sizeof(frame))) {
-    ESP_LOGE(TAG, "Failed to send set timer command");
-    this->handle_error(CONFIG_ERROR);
-  }
-  ESP_LOGD(TAG, "Sent set timer %u", timer);
-}
-
-void ZehnderRF::handle_error(ErrorCode code) {
-  switch (code) {
-    case CONFIG_ERROR:
-      ESP_LOGE(TAG, "Configuration error");
-      break;
-    default:
-      ESP_LOGE(TAG, "Unknown error code: %d", code);
-      break;
+    this->rf_->send((uint8_t *) pTxFrame, sizeof(RfFrame));
+    this->rfState_ = RfStateTxBusy;
+    this->retries_ = 3;
+  } else {
+    this->error_code_ = E01_COMMUNICATION_ERROR;
   }
 }
 
