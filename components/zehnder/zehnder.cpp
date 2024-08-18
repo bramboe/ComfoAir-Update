@@ -7,53 +7,14 @@ namespace zehnder {
 
 static const char *const TAG = "zehnder";
 
-typedef struct __attribute__((packed)) {
-  uint32_t networkId;
-} RfPayloadNetworkJoinOpen;
+// ... (Your existing typedefs, structs like RfPayloadNetworkJoinOpen, RfPayloadNetworkJoinRequest, 
+// RfPayloadNetworkJoinAck, RfPayloadFanSettings, RfPayloadFanSetSpeed, RfPayloadFanSetTimer, RfFrame) ...
 
-typedef struct __attribute__((packed)) {
-  uint32_t networkId;
-} RfPayloadNetworkJoinRequest;
-
-typedef struct __attribute__((packed)) {
-  uint32_t networkId;
-} RfPayloadNetworkJoinAck;
-
-typedef struct __attribute__((packed)) {
-  uint8_t speed;
-  uint8_t voltage;
-  uint8_t timer;
-} RfPayloadFanSettings;
-
-typedef struct __attribute__((packed)) {
-  uint8_t speed;
-} RfPayloadFanSetSpeed;
-
-typedef struct __attribute__((packed)) {
-  uint8_t speed;
-  uint8_t timer;
-} RfPayloadFanSetTimer;
-
-typedef struct __attribute__((packed)) {
-  uint8_t rx_type;          // 0x00 RX Type
-  uint8_t rx_id;            // 0x01 RX ID
-  uint8_t tx_type;          // 0x02 TX Type
-  uint8_t tx_id;            // 0x03 TX ID
-  uint8_t ttl;              // 0x04 Time-To-Live
-  uint8_t command;          // 0x05 Frame type
-  uint8_t parameter_count;  // 0x06 Number of parameters
-
-  union {
-    uint8_t parameters[9];                           // 0x07 - 0x0F Depends on command
-    RfPayloadFanSetSpeed setSpeed;                   // Command 0x02
-    RfPayloadFanSetTimer setTimer;                   // Command 0x03
-    RfPayloadNetworkJoinRequest networkJoinRequest;  // Command 0x04
-    RfPayloadNetworkJoinOpen networkJoinOpen;        // Command 0x06
-    RfPayloadFanSettings fanSettings;                // Command 0x07
-  };
-} RfFrame;
-
-ZehnderRF::ZehnderRF() : rf_(nullptr), interval_(1000) {}
+ZehnderRF::ZehnderRF() 
+  : rf_(nullptr), 
+    interval_(1000),
+    voltage_(0)  // Initialize voltage_ to a default value (e.g., 0)
+{ }
 
 void ZehnderRF::setup() {
   ESP_LOGCONFIG(TAG, "Setting up ZehnderRF...");
@@ -62,8 +23,9 @@ void ZehnderRF::setup() {
     return;
   }
 
-  // Configuration code here...
-  this->queryDevice();
+  // ... Your existing configuration code ...
+
+  // You might want to update the voltage_ here based on initial fan state or settings.
 }
 
 void ZehnderRF::dump_config() {
@@ -78,10 +40,10 @@ fan::FanTraits ZehnderRF::get_traits() {
   traits.set_supported_speed_count(5);  // Number of speeds: AUTO, LOW, MEDIUM, HIGH, MAX
 
   // Define support for speed control
-  traits.set_supports_speed(true);
+  traits.supports_speed = true; // Direct assignment
   
   // Define support for direction control (assuming not supported)
-  traits.set_supports_direction(false);
+  traits.supports_direction = false; // Direct assignment
 
   return traits;
 }
@@ -117,13 +79,37 @@ void ZehnderRF::setSpeed(const uint8_t speed, const uint8_t timer) {
   this->newTimer = timer;
   this->newSetting = true;
 
-  // Add code to transmit speed and timer settings to the device
-  // Example: this->startTransmit(...);
+  // ... (Your code to transmit speed and timer settings) ...
+
+  // Update the voltage_ based on the new speed setting
+  // You'll need to implement the logic to map speed to voltage here
+  // For example:
+  switch (speed) {
+    case FAN_SPEED_AUTO: 
+      setVoltage(0); // Or whatever voltage corresponds to AUTO mode
+      break;
+    case FAN_SPEED_LOW: 
+      setVoltage(30); // Assuming 30% corresponds to 3.0 volts
+      break;
+    // ... add cases for other speeds ...
+    default:
+      setVoltage(0); // Handle invalid speeds gracefully
+      break;
+  }
 }
 
 void ZehnderRF::queryDevice() {
   // Add code to query the device for status or other information
   // Example: this->startTransmit(...);
+}
+
+// ... (Your other existing methods like createDeviceID, discoveryStart, etc.) ...
+
+void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataLength) {
+  // ... (Your existing code to handle received RF data) ...
+
+  // If you receive data that updates the fan speed or settings, 
+  // make sure to update the voltage_ accordingly here as well.
 }
 
 }  // namespace zehnder
