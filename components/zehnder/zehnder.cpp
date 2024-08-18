@@ -45,7 +45,8 @@ fan::FanTraits ZehnderRF::get_traits() {
   // Define support for direction control (assuming not supported)
   traits.supports_direction = false;  // Direct assignment
 
-  return traits;
+  return fan::FanTraits(5, true, false);  // 5 speeds, supports_speed = true, supports_direction = false
+
 }
 
 void ZehnderRF::control(const fan::FanCall &call) {
