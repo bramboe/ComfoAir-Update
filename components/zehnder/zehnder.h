@@ -83,6 +83,18 @@ class ZehnderRF : public Component, public fan::Fan {
   bool timer;
   int voltage;
 
+  // Add the new enum and method here
+  enum ErrorCode {
+    NO_ERROR = 0,
+    E01_COMMUNICATION_ERROR = 1,
+    E02_TEMPERATURE_SENSOR_FAILURE = 2,
+    E03_FAN_MALFUNCTION = 3,
+    E04_BYPASS_VALVE_ISSUE = 4,
+    E05_FILTER_REPLACEMENT_NEEDED = 5
+  };
+
+  ErrorCode get_error_code() const { return error_code_; }
+
  protected:
   void queryDevice(void);
 
@@ -146,6 +158,8 @@ class ZehnderRF : public Component, public fan::Fan {
     RfStateRxWait,
   } RfState;
   RfState rfState_{RfStateIdle};
+
+  ErrorCode error_code_{NO_ERROR}; // Declare this to hold the error code
 };
 
 }  // namespace zehnder
