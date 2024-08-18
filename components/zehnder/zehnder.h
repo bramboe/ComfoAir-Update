@@ -38,8 +38,7 @@ enum {
   // FAN_NETWORK_JOIN_FINISH = 0x0D,
   FAN_TYPE_QUERY_NETWORK = 0x0D,
   FAN_TYPE_QUERY_DEVICE = 0x10,
-  FAN_FRAME_SETVOLTAGE_REPLY = 0x1D,
-  FAN_ERROR_REPORT = 0x1E, // Assuming 0x1E is the error report frame type
+  FAN_FRAME_SETVOLTAGE_REPLY = 0x1D
 };
 
 /* Fan speed presets */
@@ -80,8 +79,6 @@ class ZehnderRF : public Component, public fan::Fan {
   float get_setup_priority() const override { return setup_priority::DATA; }
 
   void setSpeed(const uint8_t speed, const uint8_t timer = 0);
-
-  ErrorCode get_error_code() const; // Add this line
 
   bool timer;
   int voltage;
@@ -149,9 +146,6 @@ class ZehnderRF : public Component, public fan::Fan {
     RfStateRxWait,
   } RfState;
   RfState rfState_{RfStateIdle};
-
-  ErrorCode errorCode_; // Add this line
-  uint32_t lastErrorTime_{0};
 };
 
 }  // namespace zehnder
