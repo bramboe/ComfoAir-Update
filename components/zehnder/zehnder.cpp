@@ -40,10 +40,10 @@ fan::FanTraits ZehnderRF::get_traits() {
   traits.set_supported_speed_count(5);  // Number of speeds: AUTO, LOW, MEDIUM, HIGH, MAX
 
   // Define support for speed control
-  traits.set_supports_speed(true); 
+  traits.supports_speed = true;  // Direct assignment
 
   // Define support for direction control (assuming not supported)
-  traits.set_supports_direction(false);
+  traits.supports_direction = false;  // Direct assignment
 
   return traits;
 }
