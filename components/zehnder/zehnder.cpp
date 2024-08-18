@@ -1,6 +1,6 @@
 #include "zehnder.h"
 #include "esphome/core/log.h"
-#include "esphome/components/nrf905/nrf905.h"
+#include "esphome/core/application.h"
 
 namespace esphome {
 namespace zehnder {
