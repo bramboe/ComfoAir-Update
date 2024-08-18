@@ -5,8 +5,6 @@
 namespace esphome {
 namespace zehnder {
 
-#define MAX_TRANSMIT_TIME 2000
-
 static const char *const TAG = "zehnder";
 
 typedef struct __attribute__((packed)) {
@@ -52,15 +50,10 @@ typedef struct __attribute__((packed)) {
     RfPayloadNetworkJoinRequest networkJoinRequest;  // Command 0x04
     RfPayloadNetworkJoinOpen networkJoinOpen;        // Command 0x06
     RfPayloadFanSettings fanSettings;                // Command 0x07
-    RfPayloadNetworkJoinAck networkJoinAck;          // Command 0x0C
-  } payload;
+  };
 } RfFrame;
 
-ZehnderRF::ZehnderRF(void) {}
-
-fan::FanTraits ZehnderRF::get_traits() {
-  return fan::FanTraits(false, true, true, this->get_speed_count());
-}
+ZehnderRF::ZehnderRF() : rf_(nullptr), interval_(1000) {}
 
 void ZehnderRF::setup() {
   ESP_LOGCONFIG(TAG, "Setting up ZehnderRF...");
