@@ -72,8 +72,9 @@ void ZehnderRF::dump_config() {
 }
 
 void ZehnderRF::control(const fan::FanCall &call) {
-  if (call.get_mode().has_value()) {
-    ESP_LOGD(TAG, "Fan mode change not supported");
+  if (call.get_state().has_value()) {
+    ESP_LOGD(TAG, "Fan state change detected");
+    // Handle the fan state change if needed
   }
 
   if (call.get_speed().has_value()) {
