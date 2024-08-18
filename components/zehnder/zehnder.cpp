@@ -71,6 +71,20 @@ void ZehnderRF::dump_config() {
   ESP_LOGCONFIG(TAG, "  Device ID: %d", this->config_.fan_my_device_id);
 }
 
+fan::FanTraits ZehnderRF::get_traits() {
+  fan::FanTraits traits;
+  traits.set_supported_speeds({
+    FAN_SPEED_AUTO,
+    FAN_SPEED_LOW,
+    FAN_SPEED_MEDIUM,
+    FAN_SPEED_HIGH,
+    FAN_SPEED_MAX
+  });
+  traits.set_supports_speed(true);
+  traits.set_supports_direction(false);  // Assuming direction is not supported
+  return traits;
+}
+
 void ZehnderRF::control(const fan::FanCall &call) {
   if (call.get_state().has_value()) {
     ESP_LOGD(TAG, "Fan state change detected");
