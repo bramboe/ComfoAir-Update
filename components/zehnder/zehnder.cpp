@@ -74,11 +74,15 @@ void ZehnderRF::dump_config() {
 void ZehnderRF::control(const fan::FanCall &call) {
   if (call.get_state().has_value()) {
     ESP_LOGD(TAG, "Fan state change detected");
-    // Handle the fan state change if needed
-  }
-
-  if (call.get_speed().has_value()) {
-    this->setSpeed(call.get_speed().value());
+    if (call.get_state().value()) {
+      // Handle turning the fan on
+      if (call.get_speed().has_value()) {
+        this->setSpeed(call.get_speed().value());
+      }
+    } else {
+      // Handle turning the fan off
+      this->setSpeed(FAN_SPEED_AUTO);
+    }
   }
 }
 
@@ -97,10 +101,14 @@ void ZehnderRF::setSpeed(const uint8_t speed, const uint8_t timer) {
   this->newSpeed = speed;
   this->newTimer = timer;
   this->newSetting = true;
+
+  // Add code to transmit speed and timer settings to the device
+  // Example: this->startTransmit(...);
 }
 
 void ZehnderRF::queryDevice() {
-  // Query the device for status or other information...
+  // Add code to query the device for status or other information
+  // Example: this->startTransmit(...);
 }
 
 }  // namespace zehnder
